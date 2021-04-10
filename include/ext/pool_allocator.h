@@ -53,11 +53,15 @@
 #include <type_traits>
 #endif
 
+#ifdef STL_DEBUG
+#include <glog/logging.h>
+#endif
+
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+  _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
-  using std::size_t;
+    using std::size_t;
   using std::ptrdiff_t;
 
   /**
@@ -75,47 +79,48 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *     information that we can return the object to the proper free list
    *     without permanently losing part of the object.
    */
-    class __pool_alloc_base
-    {
+  class __pool_alloc_base
+  {
     protected:
 
-      enum { _S_align = 8 };
-      enum { _S_max_bytes = 128 };
+      enum { _S_align = 8 }; // 内存池分出去最小的内存是8字节
+      enum { _S_max_bytes = 128 }; // 内存池分出去最大的内存是128字节
+      // 从8,16，24到128需要16个free_list来进行管理
       enum { _S_free_list_size = (size_t)_S_max_bytes / (size_t)_S_align };
-      
+
       union _Obj
       {
-	union _Obj* _M_free_list_link;
-	char        _M_client_data[1];    // The client sees this.
+        union _Obj* _M_free_list_link;
+        char        _M_client_data[1];    // The client sees this.
       };
-      
+
       static _Obj* volatile         _S_free_list[_S_free_list_size];
 
       // Chunk allocation state.
       static char*                  _S_start_free;
       static char*                  _S_end_free;
       static size_t                 _S_heap_size;     
-      
+
       size_t
-      _M_round_up(size_t __bytes)
-      { return ((__bytes + (size_t)_S_align - 1) & ~((size_t)_S_align - 1)); }
-      
+        _M_round_up(size_t __bytes)
+        { return ((__bytes + (size_t)_S_align - 1) & ~((size_t)_S_align - 1)); }
+
       _GLIBCXX_CONST _Obj* volatile*
-      _M_get_free_list(size_t __bytes) throw ();
-    
+        _M_get_free_list(size_t __bytes) throw ();
+
       __mutex&
-      _M_get_mutex() throw ();
+        _M_get_mutex() throw ();
 
       // Returns an object of size __n, and optionally adds to size __n
       // free list.
       void*
-      _M_refill(size_t __n);
-      
+        _M_refill(size_t __n);
+
       // Allocates a chunk for nobjs of size size.  nobjs may be reduced
       // if it is inconvenient to allocate the requested number.
       char*
-      _M_allocate_chunk(size_t __n, int& __nobjs);
-    };
+        _M_allocate_chunk(size_t __n, int& __nobjs);
+  };
 
 
   /**
@@ -124,7 +129,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    */
   template<typename _Tp>
     class __pool_alloc : private __pool_alloc_base
-    {
+  {
     private:
       static _Atomic_word	    _S_force_new;
 
@@ -157,22 +162,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       ~__pool_alloc() _GLIBCXX_USE_NOEXCEPT { }
 
       pointer
-      address(reference __x) const _GLIBCXX_NOEXCEPT
-      { return std::__addressof(__x); }
+        address(reference __x) const _GLIBCXX_NOEXCEPT
+        { return std::__addressof(__x); }
 
       const_pointer
-      address(const_reference __x) const _GLIBCXX_NOEXCEPT
-      { return std::__addressof(__x); }
+        address(const_reference __x) const _GLIBCXX_NOEXCEPT
+        { return std::__addressof(__x); }
 
       size_type
-      max_size() const _GLIBCXX_USE_NOEXCEPT 
-      { return size_t(-1) / sizeof(_Tp); }
+        max_size() const _GLIBCXX_USE_NOEXCEPT 
+        { return size_t(-1) / sizeof(_Tp); }
 
 #if __cplusplus >= 201103L
       template<typename _Up, typename... _Args>
         void
         construct(_Up* __p, _Args&&... __args)
-	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+        { ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
 
       template<typename _Up>
         void 
@@ -181,19 +186,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
       // 402. wrong new expression in [some_] allocator::construct
       void 
-      construct(pointer __p, const _Tp& __val) 
-      { ::new((void *)__p) _Tp(__val); }
+        construct(pointer __p, const _Tp& __val) 
+        { ::new((void *)__p) _Tp(__val); }
 
       void 
-      destroy(pointer __p) { __p->~_Tp(); }
+        destroy(pointer __p) { __p->~_Tp(); }
 #endif
 
       pointer
-      allocate(size_type __n, const void* = 0);
+        allocate(size_type __n, const void* = 0);
 
       void
-      deallocate(pointer __p, size_type __n);      
-    };
+        deallocate(pointer __p, size_type __n);      
+  };
 
   template<typename _Tp>
     inline bool
@@ -214,42 +219,51 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     __pool_alloc<_Tp>::allocate(size_type __n, const void*)
     {
       pointer __ret = 0;
-      if (__builtin_expect(__n != 0, true))
-	{
-	  if (__n > this->max_size())
-	    std::__throw_bad_alloc();
+      if (__builtin_expect(__n != 0, true)) //判断对象的个数n
+      {
+        if (__n > this->max_size())
+          std::__throw_bad_alloc();
 
-	  // If there is a race through here, assume answer from getenv
-	  // will resolve in same direction.  Inspired by techniques
-	  // to efficiently support threading found in basic_string.h.
-	  if (_S_force_new == 0)
-	    {
-	      if (std::getenv("GLIBCXX_FORCE_NEW"))
-		__atomic_add_dispatch(&_S_force_new, 1);
-	      else
-		__atomic_add_dispatch(&_S_force_new, -1);
-	    }
+        // If there is a race through here, assume answer from getenv
+        // will resolve in same direction.  Inspired by techniques
+        // to efficiently support threading found in basic_string.h.
+        if (_S_force_new == 0)
+        {
+          // 如果设定了环境变量GLIBCXX_FORCE_NEW，则使用全局operator new来直接
+          // 分配内存，如果没有设置的话会使用内存池进行内存分配
+          if (std::getenv("GLIBCXX_FORCE_NEW"))
+            __atomic_add_dispatch(&_S_force_new, 1);
+          else
+            __atomic_add_dispatch(&_S_force_new, -1);
+        }
+#ifdef STL_DEBUG
+        if(_S_force_new > 0){
+          LOG(INFO) << "force use new allocator";
+        }
+        else{
+          LOG(INFO) << "use memory pool allocator";
+        }
+#endif
+        const size_t __bytes = __n * sizeof(_Tp);	      
+        if (__bytes > size_t(_S_max_bytes) || _S_force_new > 0)
+          __ret = static_cast<_Tp*>(::operator new(__bytes));
+        else
+        {
+          _Obj* volatile* __free_list = _M_get_free_list(__bytes);
 
-	  const size_t __bytes = __n * sizeof(_Tp);	      
-	  if (__bytes > size_t(_S_max_bytes) || _S_force_new > 0)
-	    __ret = static_cast<_Tp*>(::operator new(__bytes));
-	  else
-	    {
-	      _Obj* volatile* __free_list = _M_get_free_list(__bytes);
-	      
-	      __scoped_lock sentry(_M_get_mutex());
-	      _Obj* __restrict__ __result = *__free_list;
-	      if (__builtin_expect(__result == 0, 0))
-		__ret = static_cast<_Tp*>(_M_refill(_M_round_up(__bytes)));
-	      else
-		{
-		  *__free_list = __result->_M_free_list_link;
-		  __ret = reinterpret_cast<_Tp*>(__result);
-		}
-	      if (__ret == 0)
-		std::__throw_bad_alloc();
-	    }
-	}
+          __scoped_lock sentry(_M_get_mutex());
+          _Obj* __restrict__ __result = *__free_list;
+          if (__builtin_expect(__result == 0, 0))
+            __ret = static_cast<_Tp*>(_M_refill(_M_round_up(__bytes)));
+          else
+          {
+            *__free_list = __result->_M_free_list_link;
+            __ret = reinterpret_cast<_Tp*>(__result);
+          }
+          if (__ret == 0)
+            std::__throw_bad_alloc();
+        }
+      }
       return __ret;
     }
 
@@ -258,23 +272,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     __pool_alloc<_Tp>::deallocate(pointer __p, size_type __n)
     {
       if (__builtin_expect(__n != 0 && __p != 0, true))
-	{
-	  const size_t __bytes = __n * sizeof(_Tp);
-	  if (__bytes > static_cast<size_t>(_S_max_bytes) || _S_force_new > 0)
-	    ::operator delete(__p);
-	  else
-	    {
-	      _Obj* volatile* __free_list = _M_get_free_list(__bytes);
-	      _Obj* __q = reinterpret_cast<_Obj*>(__p);
+      {
+        const size_t __bytes = __n * sizeof(_Tp);
+        if (__bytes > static_cast<size_t>(_S_max_bytes) || _S_force_new > 0)
+          ::operator delete(__p);
+        else
+        {
+          _Obj* volatile* __free_list = _M_get_free_list(__bytes);
+          _Obj* __q = reinterpret_cast<_Obj*>(__p);
 
-	      __scoped_lock sentry(_M_get_mutex());
-	      __q ->_M_free_list_link = *__free_list;
-	      *__free_list = __q;
-	    }
-	}
+          __scoped_lock sentry(_M_get_mutex());
+          __q ->_M_free_list_link = *__free_list;
+          *__free_list = __q;
+        }
+      }
     }
 
-_GLIBCXX_END_NAMESPACE_VERSION
+  _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 
 #endif
