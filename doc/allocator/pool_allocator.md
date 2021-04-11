@@ -79,7 +79,7 @@ GLIBCXX_FORCE_NEW=true ./build/test/test.bin --gtest_filter=TestStdAllocator.poo
 
 4、定义了_Obj这个union的结构体，和前面提到的embedded pointer是类似的，他主要的作用就是将空闲的内存块串联起来，方便后续使用，类似下面图的功能
 
-<img src="./image/embeded_pointer.png" alt="image-20210411115059857" style="zoom:80%;" />
+<img src="./image/embeded_pointer.png" alt="image-20210411115059857" div align=center style="zoom:70%;" />
 
 
 
