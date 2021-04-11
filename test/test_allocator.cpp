@@ -1,4 +1,3 @@
-#include <cstdlib>
 #include <vector>
 #include <string>
 #include <complex>
@@ -6,6 +5,7 @@
 #include <memory>
 #include <ext/malloc_allocator.h>
 #include <ext/pool_allocator.h>
+#include <cstdlib>
 
 #include <malloc.h>
 
@@ -733,7 +733,7 @@ TEST_F(TestStdAllocator, new_allocator_allocate_and_deallocate){
   for(int i = 0; i < 10; ++i){
     alloc.deallocate(ptr_vec[i], 0);
   } 
-  
+
   // 前面我们是一个一个分配对象的，那我们也可以一次性分配10个内存
   Widget1* ptr = alloc.allocate(10);
   for(int i = 0; i < 10; ++i){
@@ -747,11 +747,93 @@ TEST_F(TestStdAllocator, new_allocator_allocate_and_deallocate){
   alloc.deallocate(ptr, 0);
 }
 
+// 在src/pool_allocator.cc中我们添加了打印代码
 TEST_F(TestStdAllocator, test_usr_defined_pool_allocator){
   __gnu_cxx::__pool_alloc<double> pool_alloc;
   double* ptr = pool_alloc.allocate(10);
   pool_alloc.deallocate(ptr, 0);
 }
+
+TEST_F(TestStdAllocator, test_pool_allocator){
+  if (getenv("GLIBCXX_FORCE_NEW")){
+    return;
+  }
+  {
+    // 如果是分配char大小的对象的话，其实给回来的内存块是8个字节
+    __gnu_cxx::__pool_alloc<char> pool_alloc;
+    char* pre_ptr = pool_alloc.allocate(1);
+    for(int i = 0; i < 8; ++i){
+      char* ptr = pool_alloc.allocate(1);
+      EXPECT_EQ(ptr - pre_ptr, 8);
+      LOG(INFO) << "char pointer address distance is " << (ptr - pre_ptr) * sizeof(char);
+      pre_ptr = ptr;
+    }
+  }
+  {
+    // 如果是分配的int大小的对象的话，pool内存池给回来的内存块也是8个字节
+    __gnu_cxx::__pool_alloc<int> pool_alloc;
+    int* pre_ptr = pool_alloc.allocate(1);
+    for(int i = 0; i < 8; ++i){
+      int* ptr = pool_alloc.allocate(1);
+      EXPECT_EQ((ptr - pre_ptr) * sizeof(int), 8);
+      LOG(INFO) << "int pointer address distance is " << (ptr - pre_ptr) * sizeof(int);
+      pre_ptr = ptr;
+    }
+  }
+  {
+    // 分配对象大小为128个字节
+    class Widget{
+      public:
+        Widget();
+      private:
+        std::string str[4];
+    };
+    __gnu_cxx::__pool_alloc<Widget> pool_alloc;
+    EXPECT_EQ(sizeof(Widget), 128);
+    Widget* pre_ptr = pool_alloc.allocate(1);
+    for(int i = 0; i < 8; ++i){
+      Widget* ptr = pool_alloc.allocate(1);
+      EXPECT_EQ((ptr - pre_ptr) * sizeof(Widget), 128);
+      LOG(INFO) << "Widget pointer address distance is " << (ptr - pre_ptr) * sizeof(Widget);
+      pre_ptr = ptr;
+    }
+  }
+  {
+    // 分配大小为136个字节，这么大的对象已经不从内存池中分配内存了
+    class Widget1{
+      public:
+        Widget1(){}
+      private:
+        std::string str[4];
+        long data;
+    };
+    __gnu_cxx::__pool_alloc<Widget1> pool_alloc;
+    EXPECT_EQ(sizeof(Widget1), 136);
+    Widget1* pre_ptr = pool_alloc.allocate(1);
+    for(int i = 0; i < 8; ++i){
+      Widget1* ptr = pool_alloc.allocate(1);
+      EXPECT_GT((ptr - pre_ptr) * sizeof(Widget1), 136);
+      LOG(INFO) << "Widget1 pointer address distance is " << 
+        (ptr - pre_ptr) * sizeof(Widget1);
+    }
+  }
+}
+
+
+TEST_F(TestStdAllocator, pool_allocator_use_new_operator){
+  // must set GLIBCXX_FORCE_NEW when run test
+  if (getenv("GLIBCXX_FORCE_NEW")){
+    __gnu_cxx::__pool_alloc<double> pool_alloc;
+    double* pre_ptr = pool_alloc.allocate(1);
+    for(int i = 0; i < 10; ++i){
+      double* ptr = pool_alloc.allocate(1);
+      EXPECT_GT((ptr - pre_ptr) * sizeof(double), sizeof(double));
+      LOG(INFO) << "pointer address distance is " << (ptr - pre_ptr) * sizeof(double);
+      pre_ptr = ptr;
+    }
+  } 
+}
+
 
 class TestMallocAllocator : public ::testing::Test{};
 TEST_F(TestMallocAllocator, test_equal){
@@ -786,8 +868,5 @@ TEST_F(TestMallocAllocator, test_construct_destroy){
   Person man(name, 10);
   person_malloc.construct(ptr, man);
   person_malloc.destroy(ptr);
-
 }
-
-
 
