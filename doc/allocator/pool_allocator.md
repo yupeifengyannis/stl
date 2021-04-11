@@ -53,6 +53,52 @@ I0410 22:23:26.953686  1368 pool_allocator.cc:68] use usr defined pool malloc
 
 1、如果全局指定直接使用new来分配内存，则在pool allocator中会直接调用::operator new函数进行内存分配，没有内存池的管理。
 
+可以运行如下命令，可以看到一旦设置了GLIBCXX_FORCE_NEW环境变量之后，pool allocator会直接使用operator new来进行内存分配
+
+```bash
+GLIBCXX_FORCE_NEW=true ./build/test/test.bin --gtest_filter=TestStdAllocator.pool_allocator_use_new_operator
+```
+
 2、如果对象需要的内存块大小超过128个字节的话也会直接调用::operator new来进行分配内存，因为分配大块内存的话其实malloc的额外内存开销比较小。
 
 3、如果需要分配内存的大小在8字节和128字节之间的话，则会使用内存池管理内存。
+
+对于2、3两点我们可以通过运行一下命令来验证：
+
+```bash
+./build/test/test.bin --gtest_filter=TestStdAllocator.test_pool_allocator
+```
+
+### 几个重要的变量
+
+1、pool alloc分配的内存是严格的进行内存对齐的，对齐的大小是8字节，即最小内存是8字节，那如果我们通过内存池想申请char和int类型的内存块，pool_alloc只能给我们8字节大小的内存块，但其实我们实际只使用1byte和4bytes大小的内存，这就会有一定的内部碎片产生，这个是无法避免的。
+
+2、pool_alloc是通过16个链表来管理不同大小的内存块的，从8字节到128字节。这些个链表在_S_free_list中。
+
+3、内存池的归根结底还是需要调用::operator new向系统heap中申请内存，每次会申请一大块的内存，然后将这一大块内存分给对应的free_list，当然也不会全部分完，这个时候就需要我们还要管理直接从系统heap申请来的内存，指针\_S_start\_free对应的空余内存池开始的位置，_s_end_free则对应的是内存结束的位置，而\_S_heap_size则统计着向系统申请内存的总和。
+
+4、定义了_Obj这个union的结构体，和前面提到的embedded pointer是类似的，他主要的作用就是将空闲的内存块串联起来，方便后续使用，类似下面图的功能
+
+<img src="./image/embeded_pointer.png" alt="image-20210411115059857" style="zoom:80%;" />
+
+
+
+```c++
+      enum { _S_align = 8 }; // 内存池分出去最小的内存是8字节
+      enum { _S_max_bytes = 128 }; // 内存池分出去最大的内存是128字节
+      // 从8,16，24到128需要16个free_list来进行管理
+      enum { _S_free_list_size = (size_t)_S_max_bytes / (size_t)_S_align };
+
+      union _Obj
+      {
+        union _Obj* _M_free_list_link;
+        char        _M_client_data[1];    // The client sees this.
+      };
+
+      static _Obj* volatile         _S_free_list[_S_free_list_size];
+
+      // Chunk allocation state.
+      static char*                  _S_start_free; // 内存池开始的位置
+      static char*                  _S_end_free;  // 内存池结束的位置
+      static size_t                 _S_heap_size;  // 统计使用了heap的总和
+```

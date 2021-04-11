@@ -97,12 +97,12 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
       static _Obj* volatile         _S_free_list[_S_free_list_size];
 
       // Chunk allocation state.
-      static char*                  _S_start_free;
-      static char*                  _S_end_free;
-      static size_t                 _S_heap_size;     
+      static char*                  _S_start_free; // 内存池开始的位置
+      static char*                  _S_end_free;  // 内存池结束的位置
+      static size_t                 _S_heap_size;  // 统计使用了heap的内存大小
 
       size_t
-        _M_round_up(size_t __bytes)
+        _M_round_up(size_t __bytes) // 将输入的字节大小扩展成8字节的倍数
         { return ((__bytes + (size_t)_S_align - 1) & ~((size_t)_S_align - 1)); }
 
       _GLIBCXX_CONST _Obj* volatile*
@@ -151,7 +151,7 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
       // 2103. propagate_on_container_move_assignment
       typedef std::true_type propagate_on_container_move_assignment;
 #endif
-
+      // __pool_alloc的构造和析构和一般的分配器一样
       __pool_alloc() _GLIBCXX_USE_NOEXCEPT { }
 
       __pool_alloc(const __pool_alloc&) _GLIBCXX_USE_NOEXCEPT { }
@@ -212,14 +212,18 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 
   template<typename _Tp>
     _Atomic_word
-    __pool_alloc<_Tp>::_S_force_new;
+    __pool_alloc<_Tp>::_S_force_new; 
+  // 这个_S_force_new是_Atomic_word类型，是一种原子类型，具体说明可以参考
+  // https://gcc.gnu.org/onlinedocs/libstdc++/manual/ext_concurrency.html
 
   template<typename _Tp>
     _Tp*
     __pool_alloc<_Tp>::allocate(size_type __n, const void*)
     {
       pointer __ret = 0;
-      if (__builtin_expect(__n != 0, true)) //判断对象的个数n
+      // 这个__builtin_expect是gcc的一个函数，可以更好的利用CPU的流水线
+      // 参考资料：https://stackoverflow.com/questions/7346929/what-is-the-advantage-of-gccs-builtin-expect-in-if-else-statements
+      if (__builtin_expect(__n != 0, true))
       {
         if (__n > this->max_size())
           std::__throw_bad_alloc();
@@ -246,6 +250,7 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 #endif
         const size_t __bytes = __n * sizeof(_Tp);	      
         if (__bytes > size_t(_S_max_bytes) || _S_force_new > 0)
+          // 可以看到如果字节数过大，或者加载了全局环境变量，则直接调用operator new函数
           __ret = static_cast<_Tp*>(::operator new(__bytes));
         else
         {
