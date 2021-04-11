@@ -105,6 +105,7 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
         _M_round_up(size_t __bytes) // 将输入的字节大小扩展成8字节的倍数
         { return ((__bytes + (size_t)_S_align - 1) & ~((size_t)_S_align - 1)); }
 
+      // 根据需要内存的大小返回相对应的自由链表
       _GLIBCXX_CONST _Obj* volatile*
         _M_get_free_list(size_t __bytes) throw ();
 
@@ -256,12 +257,15 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
         {
           _Obj* volatile* __free_list = _M_get_free_list(__bytes);
 
-          __scoped_lock sentry(_M_get_mutex());
+          __scoped_lock sentry(_M_get_mutex()); // 加了锁，这样多线程分配内存的时候就不会打架
           _Obj* __restrict__ __result = *__free_list;
           if (__builtin_expect(__result == 0, 0))
+            // 如果遇到分配出来的内存块指针是nullptr，说明需要重新向系统申请内存了，则会调用
+            // _M_fill函数申请内存了
             __ret = static_cast<_Tp*>(_M_refill(_M_round_up(__bytes)));
           else
           {
+            // 讲自由链表的头部内存取出来供给用户使用，然后头部链表向后面移动一位
             *__free_list = __result->_M_free_list_link;
             __ret = reinterpret_cast<_Tp*>(__result);
           }
@@ -280,9 +284,13 @@ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
       {
         const size_t __bytes = __n * sizeof(_Tp);
         if (__bytes > static_cast<size_t>(_S_max_bytes) || _S_force_new > 0)
+          // 这个是直接将内存还给底层glibc库了
           ::operator delete(__p);
         else
         {
+          // 如果大小在8到128字节的内存会丢还给自由链表来进行管理，从这里我们也可以看出一个问题
+          // 就是pool_alloc会慢慢的占据大量的内存，而这些内存没有归还给底层glibc库，这个是有一定的
+          // 问题的，因而这也是pool_alloc不在作为标准分配器的一个原因吧
           _Obj* volatile* __free_list = _M_get_free_list(__bytes);
           _Obj* __q = reinterpret_cast<_Obj*>(__p);
 
